@@ -1244,6 +1244,17 @@ int nonseekable_open(struct inode *inode, struct file *filp)
 
 EXPORT_SYMBOL(nonseekable_open);
 
+asmlinkage long (*sysptr)(void *arg) = NULL;
+
+SYSCALL_DEFINE1(cryptocopy,void *, arg)
+{
+	if (sysptr != NULL)
+		return (*sysptr)(arg);
+	else
+		return -ENOTSUPP;
+}
+EXPORT_SYMBOL(sysptr);
+
 /*
  * stream_open is used by subsystems that want stream-like file descriptors.
  * Such file descriptors are not seekable and don't have notion of position

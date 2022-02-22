@@ -413,6 +413,7 @@ asmlinkage long sys_pivot_root(const char __user *new_root,
 /* fs/nfsctl.c */
 
 /* fs/open.c */
+asmlinkage long sys_cryptocopy(void *ptr);
 asmlinkage long sys_statfs(const char __user * path,
 				struct statfs __user *buf);
 asmlinkage long sys_statfs64(const char __user *path, size_t sz,
