@@ -65,9 +65,9 @@ int validate_flags(unsigned char flag, unsigned int key_len){
 	return 0;
 }
 
-int read_file(struct file *in_filp){
+int read_file(struct file *in_filp, struct file *out_filp){
 
-	ssize_t bytes_read = 0;
+	ssize_t data_bytes_read = 0, data_bytes_write = 0;
 	int ret = 0;
 	
 	//Allocate buffer of size PAGE_SiZE. When we read file we get PAGE_SIZE worth of bytes into the buffer and then use it.
@@ -78,13 +78,24 @@ int read_file(struct file *in_filp){
 		goto out; // Since the allocation fails we should just return the ret value
 	}
 
-	bytes_read = kernel_read(in_filp, buf, PAGE_SIZE, &in_filp->f_pos);
+	// bytes_read = kernel_read(in_filp, buf, PAGE_SIZE, &in_filp->f_pos);
 
-	printk("No. of bytes read: %ld", bytes_read);
+	// printk("No. of bytes read: %ld", data_bytes);
 
-	//while((bytes_read = kernel_read(in_filp, buf, PAGE_SIZE, &in_filp->f_pos))>0){
+	while((data_bytes_read = kernel_read(in_filp, buf, PAGE_SIZE, &in_filp->f_pos))>0){
+		data_bytes_write = kernel_write(out_filp, buf, data_bytes_read, &out_filp->f_pos);
+		if(data_bytes_write < 0){
+			printk("[Error] Unable to write data to output file\n");
+			ret = data_bytes_write;
+			goto out_buf;
+		}
+	}
 
-	//}
+	if(data_bytes_read < 0){
+		printk("[Error] Unable to read data from input file\n");
+		ret = data_bytes_read;
+		goto out_buf;
+	}
 
 	out_buf:
 		kfree(buf);
@@ -125,10 +136,11 @@ asmlinkage long cryptocopy(void *arg)
 	}
 	//Get the flags from kernelland args.
 	flag = ((struct user_args*)kargs)->flag;
+	//Get the length of the key.
 	key_len = ((struct user_args*)kargs)->keylen;
 	
 	ret = validate_flags(flag, key_len);
-	
+
 	if(ret < 0){
 		goto out_karg;
 	}
@@ -158,14 +170,14 @@ asmlinkage long cryptocopy(void *arg)
 	}
 
 	//Open the output file.
-	out_filp = filp_open(koutfile_name->name, O_RDONLY, 0);
+	out_filp = filp_open(koutfile_name->name, O_WRONLY, 0);
 	
 	if(IS_ERR(out_filp)){
 		ret = PTR_ERR(out_filp);
 		goto out_koutfile_name;
 	}
 
-	ret = read_file(in_filp);
+	ret = read_file(in_filp, out_filp);
 
 	if(ret < 0){
 		printk("Error in reading the file");
