@@ -31,6 +31,40 @@ int check_valid_address(void* arg, int len){
 	return 0;
 }
 
+/*
+	Validates the flags provided from the Userland. 
+	If "flags & 0x1" is non-zero, then you should encrypt the infile onto the outfile.
+	If "flags & 0x2" is non-zero, then you should decrypt the infile onto the outfile.
+ 	If "flags & 0x4" is non-zero, then you should just copy the infile to the outfile.
+*/
+int validate_flags(unsigned char flag, unsigned int key_len){
+	if(!flag){
+		printk("No flag provided in input. Please provide flags\n");
+		return -EINVAL;
+	}
+
+	if(!(flag & 0x1) && !(flag & 0x2) && !(flag & 0x4)){
+		printk("Not a valid flag. Poosible flags include -e, -d, -c\n");
+	}
+
+	if(flag & 0x1 || flag & 0x2){
+		if(!key_len){
+			printk("Possword not provided. Password must be provided to encrypt/decrypt\n");
+			return -EINVAL;
+		}else if(key_len < 6){
+			printk("Incorrect Password. Password should be atleast 6 characters\n");
+			return -EINVAL;
+		}
+	}
+
+	if(flag & 0x4 && key_len){
+		printk("Too many arguments.\n");
+		return -EINVAL;
+	}
+	printk("FLAG : %u\n", flag);
+	return 0;
+}
+
 int read_file(struct file *in_filp){
 
 	ssize_t bytes_read = 0;
@@ -64,6 +98,7 @@ asmlinkage long cryptocopy(void *arg)
 	struct file* in_filp = NULL, *out_filp = NULL;
 	struct filename* kinfile_name = NULL, *koutfile_name = NULL;
 	unsigned char flag;
+	unsigned int key_len;
 	int ret = 0;
 
 	ret = check_valid_address(arg, sizeof(struct user_args));
@@ -90,8 +125,14 @@ asmlinkage long cryptocopy(void *arg)
 	}
 	//Get the flags from kernelland args.
 	flag = ((struct user_args*)kargs)->flag;
-	printk("FLAG : %u\n", ((struct user_args*)kargs)->flag);
+	key_len = ((struct user_args*)kargs)->keylen;
 	
+	ret = validate_flags(flag, key_len);
+	
+	if(ret < 0){
+		goto out_karg;
+	}
+
 	//Get the input filename from the user args
 	kinfile_name = getname(((struct user_args *)kargs) -> infile);
 	

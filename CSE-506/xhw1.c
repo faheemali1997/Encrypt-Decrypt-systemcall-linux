@@ -23,12 +23,13 @@ int main(int argc, const char *argv[])
 	// void *dummy = (void *) argv[1];
 	struct user_args* uargs = (struct user_args*) malloc(sizeof(struct user_args));
 
-	if(uargs == NULL){
+	if(!uargs){
 		exit(1);
 	}
 
 	uargs->infile = "infile";
 	uargs->outfile = "outfile";
+	uargs->keylen = 8;
 	uargs->flag = (unsigned char)0x01;
 
   	rc = syscall(__NR_cryptocopy, uargs);
