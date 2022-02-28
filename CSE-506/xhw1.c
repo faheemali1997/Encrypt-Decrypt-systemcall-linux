@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include <string.h>
 
 #ifndef __NR_cryptocopy
 #error cryptocopy system call not defined
@@ -19,29 +20,48 @@ struct user_args {
 
 int main(int argc, const char *argv[])
 {
-	int rc;
+	int ret;
 	// void *dummy = (void *) argv[1];
 	struct user_args* uargs = (struct user_args*) malloc(sizeof(struct user_args));
 
 	if(!uargs){
-		exit(1);
+		printf("[Error] Unable to allocate memeory for keynuf\n");
+		ret = -ENOMEM;
+		goto out;
 	}
 
+	const char src[9] = "password";
 	uargs->infile = "infile";
 	uargs->outfile = "outfile";
-	uargs->keylen = 8;
+	uargs->keylen = 9;
 	uargs->flag = (unsigned char)0x01;
 
-  	rc = syscall(__NR_cryptocopy, uargs);
-
-	free(uargs);
+	uargs->keybuf = malloc(uargs->keylen);
 	
-	if (rc == 0){
-		printf("In UserLand\n");
-		printf("syscall returned %d\n", rc);
+	if(!uargs->keybuf){
+		printf("[Error] Unable to allocate memeory for keynuf\n");
+		ret = -ENOMEM;
+		goto out_uargs;
 	}
-	else
-		printf("syscall returned %d (errno=%d)\n", rc, errno);
+	
+	memcpy(uargs->keybuf, src, uargs->keylen);
 
-	exit(rc);
+  	ret = syscall(__NR_cryptocopy, uargs);
+
+	goto out_uargs_keybuf;
+
+	out_uargs_keybuf:
+		free(uargs->keybuf);
+	out_uargs:
+		free(uargs);
+	out:
+		return ret;
+	// if (ret == 0){
+	// 	printf("In UserLand\n");
+	// 	printf("syscall returned %d\n", ret);
+	// }
+	// else
+	// 	printf("syscall returned %d (errno=%d)\n", ret, errno);
+
+	// exit(ret);
 }

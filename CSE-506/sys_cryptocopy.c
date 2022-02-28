@@ -115,7 +115,7 @@ asmlinkage long cryptocopy(void *arg)
 	ret = check_valid_address(arg, sizeof(struct user_args));
 
 	if(ret < 0){
-		printk("Error in user provided address\n");
+		printk("[Error] Cannot validate user provided address for arg\n");
 		goto out;
 	}
 
@@ -130,7 +130,7 @@ asmlinkage long cryptocopy(void *arg)
 
 	//Copy the arguments from the Userland to the KernelLand.
 	if(copy_from_user(kargs, arg, sizeof(struct user_args))){
-		printk("Error in copying arguments from the user land to kernal land\n");
+		printk("[Error] Failed copying arguments from the user land to kernal land\n");
 		ret = -EFAULT;
 		goto out_karg;
 	}
@@ -143,6 +143,32 @@ asmlinkage long cryptocopy(void *arg)
 
 	if(ret < 0){
 		goto out_karg;
+	}
+
+	if(flag & 0x1 || flag & 0x2){
+		printk("[TEST] Inside flag with 0x1");
+		ret = check_valid_address(((struct user_args*)arg)->keybuf, key_len);
+
+		if(ret < 0){
+			printk("[Error] Cannot validate user provided address for keybuf\n");
+			goto out_karg;
+		}
+
+		((struct user_args*)kargs)->keybuf = kmalloc(key_len, GFP_KERNEL);
+
+		if(!((struct user_args*)kargs)->keybuf){
+			printk("[Error] Unable to allocate memory to keybuf in kernel space\n");
+			ret = -ENOMEM;
+			goto out_karg;
+		}
+
+		if(copy_from_user(((struct user_args*)kargs)->keybuf, ((struct user_args*)arg)->keybuf, key_len)){
+			printk("[Error] Failed copying keybuf from the user land to kernal land\n");
+			ret = -EFAULT;
+			goto out_kargs_keybuf;
+		}
+
+		printk("[TEST] PRINT KEYBUFF: %s\n", (char *)((struct user_args*)kargs)->keybuf);
 	}
 
 	//Get the input filename from the user args
@@ -192,6 +218,8 @@ asmlinkage long cryptocopy(void *arg)
 		filp_close(in_filp, NULL);
 	out_kinfile_name:
 		putname(kinfile_name);
+	out_kargs_keybuf:
+		kfree(((struct user_args*)kargs)->keybuf);
 	out_karg:
 		kfree(kargs);
 	out:
