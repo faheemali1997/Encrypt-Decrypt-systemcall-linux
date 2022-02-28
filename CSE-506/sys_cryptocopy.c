@@ -124,6 +124,13 @@ asmlinkage long cryptocopy(void *arg)
 		goto out_koutfile_name;
 	}
 
+	ret = read_file(in_filp);
+
+	if(ret < 0){
+		printk("Error in reading the file");
+		goto out_out_filp;
+	}
+
 	out_out_filp:
 		filp_close(out_filp, NULL);
 	out_koutfile_name:
