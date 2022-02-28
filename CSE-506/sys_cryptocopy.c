@@ -14,58 +14,128 @@ struct user_args {
 	unsigned char flag;
 };
 
-int check_valid_address(void *user_buf, int len){
+int check_valid_address(void* arg, int len){
 	
-	if(!user_buf){
+	//Check if user arguments are NULL
+	if(!arg){
 		printk("User argument is empty\n");
 		return -EINVAL;
 	}
 
-	if(!access_ok(user_buf, len)){
+	//Check if the user has proper access for the buffer
+	if(!access_ok(arg, len)){
 		printk("Access to user is not valid\n");
+		return -EFAULT;
 	}
 
 	return 0;
 }
 
+int read_file(struct file *in_filp){
+
+	ssize_t bytes_read = 0;
+	int ret = 0;
+	
+	//Allocate buffer of size PAGE_SiZE. When we read file we get PAGE_SIZE worth of bytes into the buffer and then use it.
+	void* buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
+
+	if(!buf){
+		ret = -ENOMEM;
+		goto out; // Since the allocation fails we should just return the ret value
+	}
+
+	bytes_read = kernel_read(in_filp, buf, PAGE_SIZE, &in_filp->f_pos);
+
+	printk("No. of bytes read: %ld", bytes_read);
+
+	//while((bytes_read = kernel_read(in_filp, buf, PAGE_SIZE, &in_filp->f_pos))>0){
+
+	//}
+
+	out_buf:
+		kfree(buf);
+	out:
+		return ret;
+}
+
 asmlinkage long cryptocopy(void *arg)
 {
-	void *kargs;
-	struct file *infile_ptr = NULL, *outfile_ptr = NULL;
-	struct filename *kinfile = NULL, *koutfile = NULL;
+	void* kargs = NULL;
+	struct file* in_filp = NULL, *out_filp = NULL;
+	struct filename* kinfile_name = NULL, *koutfile_name = NULL;
+	unsigned char flag;
 	int ret = 0;
-
-	mm_segment_t old_fs;
 
 	ret = check_valid_address(arg, sizeof(struct user_args));
 
 	if(ret < 0){
 		printk("Error in user provided address\n");
-		//goto out;
+		goto out;
 	}
 
+	//Allocate memory to copy the Userland args to Kernelland.
 	kargs = kmalloc(sizeof(struct user_args), GFP_KERNEL);
 
+	//If the memory allocation fails. Return ENOMEM Error.
 	if(!kargs){
 		ret = -ENOMEM;
-		//goto out;
+		goto out; // Since the allocation fails we should just return the ret value
 	}
 
+	//Copy the arguments from the Userland to the KernelLand.
 	if(copy_from_user(kargs, arg, sizeof(struct user_args))){
 		printk("Error in copying arguments from the user land to kernal land\n");
 		ret = -EFAULT;
-		//goto out;
+		goto out_karg;
+	}
+	//Get the flags from kernelland args.
+	flag = ((struct user_args*)kargs)->flag;
+	printk("FLAG : %u\n", ((struct user_args*)kargs)->flag);
+	
+	//Get the input filename from the user args
+	kinfile_name = getname(((struct user_args *)kargs) -> infile);
+	
+	if(IS_ERR(kinfile_name)){
+		ret = PTR_ERR(kinfile_name);
+		goto out_karg;
 	}
 
-	printk("FLAG : %u\n", ((struct user_args*)kargs)->flag);
-	kfree(kargs);
+	//Open the inpute file 
+	in_filp = filp_open(kinfile_name->name, O_RDONLY, 0);
+	
+	if(IS_ERR(in_filp)){
+		ret = PTR_ERR(in_filp);
+		goto out_kinfile_name;
+	}
 
-	/* dummy syscall: returns 0 for non null, -EINVAL for NULL */
-	printk("cryptocopy received arg %p\n", arg);
-	if (arg == NULL)
-		return -EINVAL;
-	else
-		return 0;
+	//Get the output filename from the user args.
+	koutfile_name = getname(((struct user_args *)kargs) -> outfile);
+	
+	if(IS_ERR(koutfile_name)){
+		ret = PTR_ERR(koutfile_name);
+		goto out_in_filp;
+	}
+
+	//Open the output file.
+	out_filp = filp_open(koutfile_name->name, O_RDONLY, 0);
+	
+	if(IS_ERR(out_filp)){
+		ret = PTR_ERR(out_filp);
+		goto out_koutfile_name;
+	}
+
+	out_out_filp:
+		filp_close(out_filp, NULL);
+	out_koutfile_name:
+		putname(koutfile_name);
+	out_in_filp:
+		filp_close(in_filp, NULL);
+	out_kinfile_name:
+		putname(kinfile_name);
+	out_karg:
+		kfree(kargs);
+	out:
+		return ret;
 }
 
 static int __init init_sys_cryptocopy(void)

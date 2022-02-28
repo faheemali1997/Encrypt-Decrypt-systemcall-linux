@@ -21,18 +21,19 @@ int main(int argc, const char *argv[])
 {
 	int rc;
 	// void *dummy = (void *) argv[1];
-
 	struct user_args* uargs = (struct user_args*) malloc(sizeof(struct user_args));
 
 	if(uargs == NULL){
 		exit(1);
 	}
 
+	uargs->infile = "infile";
+	uargs->outfile = "outfile";
 	uargs->flag = (unsigned char)0x01;
 
-	free(uargs);
-
   	rc = syscall(__NR_cryptocopy, uargs);
+
+	free(uargs);
 	
 	if (rc == 0){
 		printf("In UserLand\n");
