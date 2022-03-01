@@ -185,19 +185,101 @@ out_hash_key:
 	return ret;
 }
 
+int get_stat(const char *name, struct kstat **file_stat)
+{
+	mm_segment_t old_fs;
+	int ret;
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+	ret = vfs_stat(name, *(file_stat));
+	set_fs(old_fs);
+	return ret;
+}
+
+int validate_open_input_file(struct user_args *arg, struct file** in_filp){
+	printk("Validate the Open the Input File\n");
+	
+	struct filename* kinfile_name = NULL;
+	struct kstat *infile_stat = NULL;
+	int ret = 0;
+
+	//Get the input filename from the user args
+	kinfile_name = getname(arg->infile);
+	if(IS_ERR(kinfile_name)){
+		ret = PTR_ERR(kinfile_name);
+		goto out;
+	}
+
+	infile_stat = kmalloc(sizeof(*infile_stat), GFP_KERNEL);
+	if (!infile_stat) {
+		ret = -ENOMEM;
+		goto out_kinfile_name;
+	}
+
+	ret = get_stat(kinfile_name->name, &infile_stat);
+	if (ret < 0) {
+		printk("Input file does not exist\n");
+		goto out_infile_stat;
+	}
+
+	if (!S_ISREG(infile_stat->mode)) {
+		printk("Input file is not a regular file\n");
+		ret = -EINVAL;
+		goto out_infile_stat;
+	}
+
+	//Open the inpute file 
+	(*in_filp) = filp_open(kinfile_name->name, O_RDONLY, 0);
+	if(IS_ERR(in_filp)){
+		ret = PTR_ERR(in_filp);
+		goto out_infile_stat;
+	}
+
+	out_infile_stat:
+		kfree(infile_stat);
+	out_kinfile_name:
+		putname(kinfile_name);
+	out:
+		return ret;
+}
+
+int validate_open_output_file(struct user_args *arg, struct file** out_filp){
+	
+	struct filename* koutfile_name = NULL;
+	// struct kstat *outfile_stat = NULL;
+	int ret = 0;
+	
+	//Get the output filename from the user args.
+	koutfile_name = getname(arg->outfile);
+	if(IS_ERR(koutfile_name)){
+		ret = PTR_ERR(koutfile_name);
+		goto out;
+	}
+
+	//Open the output file.
+	(*out_filp) = filp_open(koutfile_name->name, O_WRONLY, 0);
+	if(IS_ERR(out_filp)){
+		ret = PTR_ERR(out_filp);
+		goto out_koutfile_name;
+	}
+
+	out_koutfile_name:
+		putname(koutfile_name);
+	out:
+		return ret;
+}
+
 
 asmlinkage long cryptocopy(void *arg)
 {
 	void* kargs = NULL;
 	struct file* in_filp = NULL, *out_filp = NULL;
-	struct filename* kinfile_name = NULL, *koutfile_name = NULL;
 	unsigned char flag;
 	unsigned int key_len;
 	int ret = 0;
 	void* hash_key_buff = NULL;
 
 	ret = check_valid_address(arg, sizeof(struct user_args));
-
 	if(ret < 0){
 		printk("[Error] Cannot validate user provided address for arg\n");
 		goto out;
@@ -224,7 +306,6 @@ asmlinkage long cryptocopy(void *arg)
 	key_len = ((struct user_args*)kargs)->keylen;
 	
 	ret = validate_flags(kargs);
-
 	if(ret < 0){
 		goto out_karg;
 	}
@@ -241,46 +322,24 @@ asmlinkage long cryptocopy(void *arg)
 			goto out_karg;
 		}
 
-		ret = generate_hash(((struct user_args *)kargs)->keybuf, key_len,
-			       hash_key_buff);
+		ret = generate_hash(((struct user_args *)kargs)->keybuf, key_len, hash_key_buff);
 		if (ret < 0)
 			goto out_hash_key_buff;	
 	}
-
-	//Get the input filename from the user args
-	kinfile_name = getname(((struct user_args *)arg) -> infile);
 	
-	if(IS_ERR(kinfile_name)){
-		ret = PTR_ERR(kinfile_name);
-		goto out_karg;
-	}
-
-	//Open the inpute file 
-	in_filp = filp_open(kinfile_name->name, O_RDONLY, 0);
-	
-	if(IS_ERR(in_filp)){
-		ret = PTR_ERR(in_filp);
-		goto out_kinfile_name;
-	}
-
-	//Get the output filename from the user args.
-	koutfile_name = getname(((struct user_args *)arg) -> outfile);
-	
-	if(IS_ERR(koutfile_name)){
-		ret = PTR_ERR(koutfile_name);
+	ret = validate_open_input_file(arg, &in_filp);
+	if(ret < 0){
+		printk("[Error] Failed to open the input file.\n");
 		goto out_in_filp;
 	}
 
-	//Open the output file.
-	out_filp = filp_open(koutfile_name->name, O_WRONLY, 0);
-	
-	if(IS_ERR(out_filp)){
-		ret = PTR_ERR(out_filp);
-		goto out_koutfile_name;
+	ret = validate_open_output_file(arg, &out_filp);
+	if(ret<0){
+		printk("[Error]: Failed to open the output file.\n");
+		goto out_out_filp;
 	}
 
 	ret = read_file(in_filp, out_filp);
-
 	if(ret < 0){
 		printk("Error in reading the file");
 		goto out_out_filp;
@@ -288,12 +347,8 @@ asmlinkage long cryptocopy(void *arg)
 
 	out_out_filp:
 		filp_close(out_filp, NULL);
-	out_koutfile_name:
-		putname(koutfile_name);
 	out_in_filp:
 		filp_close(in_filp, NULL);
-	out_kinfile_name:
-		putname(kinfile_name);
 	out_hash_key_buff:
 		kfree(hash_key_buff);
 	out_karg:
