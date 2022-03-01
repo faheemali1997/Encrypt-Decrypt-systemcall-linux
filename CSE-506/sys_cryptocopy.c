@@ -3,8 +3,12 @@
 #include <linux/fs.h>
 #include <linux/uaccess.h>	/* for mm_segment_t??*/
 #include <linux/slab.h>	 
+#include <linux/crypto.h>
+#include <crypto/hash.h>
 
 asmlinkage extern long (*sysptr)(void *arg);
+
+#define SHA256_LENGTH 32 
 
 struct user_args {
 	char *infile;
@@ -140,6 +144,48 @@ int read_file(struct file *in_filp, struct file *out_filp){
 		return ret;
 }
 
+int generate_hash(void *in_data, unsigned int in_len, void *hash_key_buff)
+{
+	struct shash_desc *desc;
+	struct crypto_shash *tfm;
+	int desc_size;
+	int ret = 0;
+
+	memset(hash_key_buff, 0, SHA256_LENGTH);
+
+	tfm = crypto_alloc_shash("sha256", 0, CRYPTO_ALG_ASYNC);
+
+	if (IS_ERR(tfm)) {
+		pr_err("Could not allocate memory to tfm for sha256\n");
+		ret = PTR_ERR(tfm);
+		goto out_hash_key;
+	}
+
+	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+
+	desc = kmalloc(desc_size, GFP_KERNEL);
+	if (!desc) {
+		ret = -ENOMEM;
+		goto out_free_shash;
+	}
+	desc->tfm =  tfm;
+
+	ret = crypto_shash_digest(desc, (u8 *)in_data, in_len, (u8 *)hash_key_buff);
+	if (ret < 0) {
+		pr_err("Error in hashing the key\n");
+		goto out_free_desc;
+	}
+	
+out_free_desc:
+	desc->tfm = NULL;
+	kfree(desc);
+out_free_shash:
+	crypto_free_shash(tfm);
+out_hash_key:
+	return ret;
+}
+
+
 asmlinkage long cryptocopy(void *arg)
 {
 	void* kargs = NULL;
@@ -148,6 +194,7 @@ asmlinkage long cryptocopy(void *arg)
 	unsigned char flag;
 	unsigned int key_len;
 	int ret = 0;
+	void* hash_key_buff = NULL;
 
 	ret = check_valid_address(arg, sizeof(struct user_args));
 
@@ -187,6 +234,17 @@ asmlinkage long cryptocopy(void *arg)
 		if(ret < 0){
 			goto out_karg;
 		}
+
+		hash_key_buff = kmalloc(SHA256_LENGTH, GFP_KERNEL);
+		if (!hash_key_buff) {
+			ret = -ENOMEM;
+			goto out_karg;
+		}
+
+		ret = generate_hash(((struct user_args *)kargs)->keybuf, key_len,
+			       hash_key_buff);
+		if (ret < 0)
+			goto out_hash_key_buff;	
 	}
 
 	//Get the input filename from the user args
@@ -236,6 +294,8 @@ asmlinkage long cryptocopy(void *arg)
 		filp_close(in_filp, NULL);
 	out_kinfile_name:
 		putname(kinfile_name);
+	out_hash_key_buff:
+		kfree(hash_key_buff);
 	out_karg:
 		kfree(kargs);
 	out:
