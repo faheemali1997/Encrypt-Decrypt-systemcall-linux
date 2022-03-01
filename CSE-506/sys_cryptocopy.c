@@ -8,7 +8,7 @@
 
 asmlinkage extern long (*sysptr)(void *arg);
 
-#define SHA256_LENGTH 32 
+#define SHA512_LENGTH 64 
 
 struct user_args {
 	char *infile;
@@ -106,7 +106,7 @@ int validate_flags(struct user_args *kargs){
 	return 0;
 }
 
-int read_file(struct file *in_filp, struct file *out_filp){
+int copy_file(struct file *in_filp, struct file *out_filp){
 
 	ssize_t data_bytes_read = 0, data_bytes_write = 0;
 	int ret = 0;
@@ -151,12 +151,12 @@ int generate_hash(void *in_data, unsigned int in_len, void *hash_key_buff)
 	int desc_size;
 	int ret = 0;
 
-	memset(hash_key_buff, 0, SHA256_LENGTH);
+	memset(hash_key_buff, 0, SHA512_LENGTH);
 
-	tfm = crypto_alloc_shash("sha256", 0, CRYPTO_ALG_ASYNC);
+	tfm = crypto_alloc_shash("sha512", 0, CRYPTO_ALG_ASYNC);
 
 	if (IS_ERR(tfm)) {
-		pr_err("Could not allocate memory to tfm for sha256\n");
+		pr_err("Could not allocate memory to tfm for sha512\n");
 		ret = PTR_ERR(tfm);
 		goto out_hash_key;
 	}
@@ -197,10 +197,8 @@ int get_stat(const char *name, struct kstat **file_stat)
 }
 
 int validate_open_input_file(struct user_args *arg, struct file** in_filp){
-	printk("Validate the Open the Input File\n");
-	
-	struct filename* kinfile_name = NULL;
-	struct kstat *infile_stat = NULL;
+	struct kstat *infile_stat;
+	struct filename *kinfile_name;
 	int ret = 0;
 
 	//Get the input filename from the user args
@@ -226,6 +224,12 @@ int validate_open_input_file(struct user_args *arg, struct file** in_filp){
 		printk("Input file is not a regular file\n");
 		ret = -EINVAL;
 		goto out_infile_stat;
+	} 
+	
+	if(S_ISDIR(infile_stat->mode)){
+		printk("Input file is a directory\n");
+		ret = -EINVAL;
+		goto out_infile_stat;
 	}
 
 	//Open the inpute file 
@@ -245,8 +249,8 @@ int validate_open_input_file(struct user_args *arg, struct file** in_filp){
 
 int validate_open_output_file(struct user_args *arg, struct file** out_filp){
 	
-	struct filename* koutfile_name = NULL;
-	// struct kstat *outfile_stat = NULL;
+	struct filename *koutfile_name;
+	struct kstat *outfile_stat;
 	int ret = 0;
 	
 	//Get the output filename from the user args.
@@ -256,24 +260,78 @@ int validate_open_output_file(struct user_args *arg, struct file** out_filp){
 		goto out;
 	}
 
-	//Open the output file.
-	(*out_filp) = filp_open(koutfile_name->name, O_WRONLY, 0);
-	if(IS_ERR(out_filp)){
-		ret = PTR_ERR(out_filp);
+	outfile_stat = kmalloc(sizeof(*outfile_stat), GFP_KERNEL);
+	if (!outfile_stat) {
+		ret = -ENOMEM;
 		goto out_koutfile_name;
 	}
 
+	/*** DO OUTPUT FILE VERIFICATION HERE ***/
+
+
+	//Open the output file.
+	(*out_filp) = filp_open(koutfile_name->name, O_WRONLY | O_TRUNC | O_CREAT, 0777);
+	if(IS_ERR(out_filp)){
+		ret = PTR_ERR(out_filp);
+		goto out_outfile_stat;
+	}
+
+	out_outfile_stat:
+		kfree(outfile_stat);
 	out_koutfile_name:
 		putname(koutfile_name);
 	out:
 		return ret;
 }
 
+int write_preamble(struct file** out_filp, void** hash_key_buff, unsigned int key_len){
+	ssize_t data_bytes_write = 0;
+
+	data_bytes_write = kernel_write(*out_filp, *hash_key_buff, key_len,
+				   &((*out_filp)->f_pos));
+	
+	if (data_bytes_write < 0)
+		return data_bytes_write;
+	else
+		return 0;
+}
+
+int read_preamble(struct file* in_filp, void** hash_key_buff, unsigned int key_len){
+	int ret = 0;
+	void* file_hash = NULL;
+	ssize_t data_bytes_read = 0;
+
+	file_hash = kmalloc(key_len, GFP_KERNEL);
+	if(!file_hash){
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	data_bytes_read = kernel_read(in_filp, file_hash, key_len, &in_filp->f_pos);
+	printk("IN READ PREAMBLE - Bytes Read %ld\n", data_bytes_read);
+
+	if(data_bytes_read<0){
+		printk("[ERROR]: Reading hash from the file/n");
+		ret = data_bytes_read;
+		goto out_file_hash;
+	}
+
+	printk("IN READ PREAMBLE AFTER KERNEL_READ\n");
+	if(memcmp(file_hash, *hash_key_buff, key_len) != 0){
+		ret = -EACCES;
+		goto out_file_hash;
+	}
+
+	out_file_hash:
+		kfree(file_hash);
+	out:
+		return ret;
+}
 
 asmlinkage long cryptocopy(void *arg)
 {
 	void* kargs = NULL;
-	struct file* in_filp = NULL, *out_filp = NULL;
+	struct file *in_filp = NULL, *out_filp = NULL;
 	unsigned char flag;
 	unsigned int key_len;
 	int ret = 0;
@@ -316,7 +374,7 @@ asmlinkage long cryptocopy(void *arg)
 			goto out_karg;
 		}
 
-		hash_key_buff = kmalloc(SHA256_LENGTH, GFP_KERNEL);
+		hash_key_buff = kmalloc(SHA512_LENGTH, GFP_KERNEL);
 		if (!hash_key_buff) {
 			ret = -ENOMEM;
 			goto out_karg;
@@ -339,7 +397,24 @@ asmlinkage long cryptocopy(void *arg)
 		goto out_out_filp;
 	}
 
-	ret = read_file(in_filp, out_filp);
+	/***OPEN OUTPUT FILE WITH INPUT FILE PERMISSION***/
+	out_filp->f_inode->i_mode = in_filp->f_inode->i_mode;
+
+	if(flag & 0x1){
+		ret = write_preamble(&out_filp, &hash_key_buff, key_len);
+		if(ret < 0){
+			printk("[Error] Unable to write hash to preamble\n");
+			goto out_out_filp;
+		}
+	}else if(flag & 0x2){
+		ret = read_preamble(in_filp, &hash_key_buff, key_len);
+		if(ret < 0){
+			printk("[Error] Unable to validate hash from preamble of inputfile and password provided.\n");
+			goto out_out_filp;
+		}
+	}
+
+	ret = copy_file(in_filp, out_filp);
 	if(ret < 0){
 		printk("Error in reading the file");
 		goto out_out_filp;
