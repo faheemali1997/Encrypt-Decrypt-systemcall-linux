@@ -31,13 +31,49 @@ int check_valid_address(void* arg, int len){
 	return 0;
 }
 
+int copy_key_buff(struct user_args *kargs, struct user_args *arg, unsigned int key_len){
+		int ret = 0;
+		ret = check_valid_address(arg->keybuf, key_len);
+		if(ret < 0){
+			printk("[Error] Cannot validate user provided address for keybuf\n");
+			goto out;
+		}
+
+		kargs->keybuf = kmalloc(key_len, GFP_KERNEL);
+
+		if(!(kargs->keybuf)){
+			printk("[Error] Unable to allocate memory to keybuf in kernel space\n");
+			ret = -ENOMEM;
+			goto out;
+		}
+
+		if(copy_from_user(kargs->keybuf, arg->keybuf, key_len)){
+			printk("[Error] Failed copying keybuf from the user land to kernal land\n");
+			ret = -EFAULT;
+			goto out_kargs_keybuf;
+		}
+
+		printk("[TEST] PRINT KEYBUFF: %s\n", (char *)kargs->keybuf);
+
+		out_kargs_keybuf:
+			kfree(kargs->keybuf);
+		out:
+			return ret;
+}
+
 /*
 	Validates the flags provided from the Userland. 
 	If "flags & 0x1" is non-zero, then you should encrypt the infile onto the outfile.
 	If "flags & 0x2" is non-zero, then you should decrypt the infile onto the outfile.
  	If "flags & 0x4" is non-zero, then you should just copy the infile to the outfile.
 */
-int validate_flags(unsigned char flag, unsigned int key_len){
+int validate_flags(struct user_args *kargs){
+	
+	//Get the flags from kernelland args.
+	unsigned char flag = kargs->flag;
+	//Get the length of the key.
+	unsigned int key_len = kargs->keylen;
+
 	if(!flag){
 		printk("No flag provided in input. Please provide flags\n");
 		return -EINVAL;
@@ -45,6 +81,7 @@ int validate_flags(unsigned char flag, unsigned int key_len){
 
 	if(!(flag & 0x1) && !(flag & 0x2) && !(flag & 0x4)){
 		printk("Not a valid flag. Poosible flags include -e, -d, -c\n");
+		return -EINVAL;
 	}
 
 	if(flag & 0x1 || flag & 0x2){
@@ -139,40 +176,21 @@ asmlinkage long cryptocopy(void *arg)
 	//Get the length of the key.
 	key_len = ((struct user_args*)kargs)->keylen;
 	
-	ret = validate_flags(flag, key_len);
+	ret = validate_flags(kargs);
 
 	if(ret < 0){
 		goto out_karg;
 	}
 
 	if(flag & 0x1 || flag & 0x2){
-		printk("[TEST] Inside flag with 0x1");
-		ret = check_valid_address(((struct user_args*)arg)->keybuf, key_len);
-
+		ret = copy_key_buff(kargs, arg, key_len);
 		if(ret < 0){
-			printk("[Error] Cannot validate user provided address for keybuf\n");
 			goto out_karg;
 		}
-
-		((struct user_args*)kargs)->keybuf = kmalloc(key_len, GFP_KERNEL);
-
-		if(!((struct user_args*)kargs)->keybuf){
-			printk("[Error] Unable to allocate memory to keybuf in kernel space\n");
-			ret = -ENOMEM;
-			goto out_karg;
-		}
-
-		if(copy_from_user(((struct user_args*)kargs)->keybuf, ((struct user_args*)arg)->keybuf, key_len)){
-			printk("[Error] Failed copying keybuf from the user land to kernal land\n");
-			ret = -EFAULT;
-			goto out_kargs_keybuf;
-		}
-
-		printk("[TEST] PRINT KEYBUFF: %s\n", (char *)((struct user_args*)kargs)->keybuf);
 	}
 
 	//Get the input filename from the user args
-	kinfile_name = getname(((struct user_args *)kargs) -> infile);
+	kinfile_name = getname(((struct user_args *)arg) -> infile);
 	
 	if(IS_ERR(kinfile_name)){
 		ret = PTR_ERR(kinfile_name);
@@ -188,7 +206,7 @@ asmlinkage long cryptocopy(void *arg)
 	}
 
 	//Get the output filename from the user args.
-	koutfile_name = getname(((struct user_args *)kargs) -> outfile);
+	koutfile_name = getname(((struct user_args *)arg) -> outfile);
 	
 	if(IS_ERR(koutfile_name)){
 		ret = PTR_ERR(koutfile_name);
@@ -218,8 +236,6 @@ asmlinkage long cryptocopy(void *arg)
 		filp_close(in_filp, NULL);
 	out_kinfile_name:
 		putname(kinfile_name);
-	out_kargs_keybuf:
-		kfree(((struct user_args*)kargs)->keybuf);
 	out_karg:
 		kfree(kargs);
 	out:
