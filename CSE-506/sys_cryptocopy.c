@@ -5,6 +5,8 @@
 #include <linux/slab.h>	 
 #include <linux/crypto.h>
 #include <crypto/hash.h>
+#include <crypto/skcipher.h>
+#include <linux/scatterlist.h>
 
 asmlinkage extern long (*sysptr)(void *arg);
 
@@ -16,6 +18,12 @@ struct user_args {
 	void *keybuf;
 	unsigned int keylen;
 	unsigned char flag;
+};
+
+struct skcipher_def {
+	struct scatterlist sg;
+	struct crypto_skcipher *tfm;
+	struct skcipher_request *req;
 };
 
 int check_valid_address(void* arg, int len){
@@ -105,6 +113,117 @@ int validate_flags(struct user_args *kargs){
 	return 0;
 }
 
+static int encrypt_decrypt(struct skcipher_request *req, void *buf, int buf_len, char *ivdata, unsigned char flag)
+{
+	struct scatterlist *sg;
+	struct crypto_wait *wait;
+	int ret = 0;
+
+	wait = kmalloc(sizeof(*wait), GFP_KERNEL);
+	if (!wait) {
+		ret = -ENOMEM;
+		goto out1;
+	}
+
+	skcipher_request_set_callback(req, CRYPTO_TFM_REQ_MAY_BACKLOG, crypto_req_done, wait);
+
+	sg = kmalloc(sizeof(*sg), GFP_KERNEL);
+	if (!sg) {
+		ret =  -ENOMEM;
+		goto out_kfree_wait;
+	}
+
+	sg_init_one(sg, buf, buf_len);
+	skcipher_request_set_crypt(req, sg, sg, buf_len, ivdata);
+	crypto_init_wait(wait);
+
+	if (flag & 0x1)
+		ret = crypto_wait_req(crypto_skcipher_encrypt(req), wait);
+	else
+		ret = crypto_wait_req(crypto_skcipher_decrypt(req), wait);
+
+	kfree(sg);
+out_kfree_wait:
+	kfree(wait);
+out1:
+	return ret;
+}
+
+
+int read_write(struct file *infile_ptr, struct file *outfile_ptr, void **ivdata,
+	       void *key, unsigned int keylen, char *cipher_name,
+	       unsigned char flag)
+{
+	ssize_t bytes_read = 0, bytes_wrote = 0, ret = 0;
+	struct crypto_skcipher *skcipher = NULL;
+	struct skcipher_request *req = NULL;
+	void *buf;
+	loff_t infile_size;
+	if (flag & 0x1 || flag & 0x2) {
+		skcipher = crypto_alloc_skcipher(cipher_name, 0, 0);
+		if (IS_ERR(skcipher)) {
+			ret = PTR_ERR(skcipher);
+			goto out_read_write;
+		}
+		req = skcipher_request_alloc(skcipher, GFP_KERNEL);
+		if (!req) {
+			ret = -ENOMEM;
+			goto out_clean_cipher_handles;
+		}
+		if (crypto_skcipher_setkey(skcipher, key, keylen)) {
+			pr_err("Error in setting key in skcipher\n");
+			ret = -EAGAIN;
+			goto out_clean_cipher_handles;
+		}
+	}
+
+	buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!buf) {
+		ret = -ENOMEM;
+		goto out_clean_cipher_handles;
+	}
+
+	infile_size = infile_ptr->f_inode->i_size;
+	while ((bytes_read = kernel_read(infile_ptr, buf, PAGE_SIZE,
+					 &infile_ptr->f_pos)) > 0) {
+		/* if flag is 0x4 then directly jump to writing in file */
+		if (flag & 0x4)
+			goto out_write_in_file;	
+		ret = encrypt_decrypt(req, buf, bytes_read, (char *)(*ivdata),
+				      flag);
+		if (ret < 0)
+			goto out_kfree_buf;
+
+	out_write_in_file:
+		bytes_wrote = kernel_write(outfile_ptr, buf, bytes_read,
+					   &outfile_ptr->f_pos);
+		if (bytes_wrote < 0) {
+			pr_err("Error in writing data to output file\n");
+			ret = bytes_wrote;
+			goto out_clean_cipher_handles;
+		}
+	}
+	/*
+	 * if bytes read is  0 but it fails on reading
+	 * then set ret to -EINVAL
+	 */
+	if (bytes_read < 0 || infile_size < infile_ptr->f_pos) {
+		ret = bytes_read ? bytes_read : -EINVAL;
+		goto out_kfree_buf;
+	}
+
+out_kfree_buf:
+	kfree(buf);
+out_clean_cipher_handles:
+	if (flag & 0x1 || flag & 0x2) {
+		kfree(req);
+		if (skcipher)
+			crypto_free_skcipher(skcipher);
+	}
+out_read_write:
+	return ret;
+}
+
 int copy_file(struct file *in_filp, struct file *out_filp){
 
 	ssize_t data_bytes_read = 0, data_bytes_write = 0;
@@ -143,6 +262,10 @@ int copy_file(struct file *in_filp, struct file *out_filp){
 		return ret;
 }
 
+
+/**
+ * Reference: https://gist.github.com/vkobel/3100cea3625ca765e4153782314bd03d
+ */
 int generate_hash(void *in_data, unsigned int in_len, void *hash_key_buff)
 {
 	struct shash_desc *desc;
@@ -195,8 +318,8 @@ int get_stat(const char *name, struct kstat **file_stat)
 	return ret;
 }
 
-int validate_open_input_file(struct user_args *arg, struct file** in_filp){
-	struct kstat *infile_stat;
+int validate_open_input_file(struct user_args *arg, struct file** in_filp, struct kstat *infile_stat){
+	// struct kstat *infile_stat;
 	struct filename *kinfile_name;
 	int ret = 0;
 
@@ -216,40 +339,39 @@ int validate_open_input_file(struct user_args *arg, struct file** in_filp){
 	ret = get_stat(kinfile_name->name, &infile_stat);
 	if (ret < 0) {
 		printk("Input file does not exist\n");
-		goto out_infile_stat;
+		goto out_kinfile_name;
 	}
 
 	if (!S_ISREG(infile_stat->mode)) {
 		printk("Input file is not a regular file\n");
 		ret = -EINVAL;
-		goto out_infile_stat;
+		goto out_kinfile_name;
 	} 
 	
 	if(S_ISDIR(infile_stat->mode)){
 		printk("Input file is a directory\n");
 		ret = -EINVAL;
-		goto out_infile_stat;
+		goto out_kinfile_name;
 	}
 
 	//Open the inpute file 
 	(*in_filp) = filp_open(kinfile_name->name, O_RDONLY, 0);
 	if(IS_ERR(in_filp)){
 		ret = PTR_ERR(in_filp);
-		goto out_infile_stat;
+		goto out_kinfile_name;
 	}
 
-	out_infile_stat:
-		kfree(infile_stat);
+	// out_infile_stat:
+	// 	kfree(infile_stat);
 	out_kinfile_name:
 		putname(kinfile_name);
 	out:
 		return ret;
 }
 
-int validate_open_output_file(struct user_args *arg, struct file** out_filp){
+int validate_open_output_file(struct user_args *arg, struct file** out_filp, struct kstat *outfile_stat, struct file** in_filp, struct kstat *infile_stat){
 	
 	struct filename *koutfile_name;
-	struct kstat *outfile_stat;
 	int ret = 0;
 	
 	//Get the output filename from the user args.
@@ -259,24 +381,31 @@ int validate_open_output_file(struct user_args *arg, struct file** out_filp){
 		goto out;
 	}
 
-	// outfile_stat = kmalloc(sizeof(*outfile_stat), GFP_KERNEL);
-	// if (!outfile_stat) {
-	// 	ret = -ENOMEM;
-	// 	goto out_koutfile_name;
-	// }
-
-	/*** DO OUTPUT FILE VERIFICATION HERE ***/
-
-
-	//Open the output file.
-	(*out_filp) = filp_open(koutfile_name->name, O_WRONLY | O_TRUNC | O_CREAT, 0777);
-	if(IS_ERR(out_filp)){
-		ret = PTR_ERR(out_filp);
+	outfile_stat = kmalloc(sizeof(*outfile_stat), GFP_KERNEL);
+	if (!outfile_stat) {
+		ret = -ENOMEM;
 		goto out_koutfile_name;
 	}
 
-	// out_outfile_stat:
-	// 	kfree(outfile_stat);
+	// ret = get_stat(koutfile_name->name, &outfile_stat);
+	// if (!ret) {
+	// 	printk("Input and Output file point to same file\n");
+	// 	goto out_koutfile_name;
+	// }
+
+	/***OPEN OUTPUT FILE WITH INPUT FILE PERMISSION***/
+	//Opening output file with input file permissions
+	(*out_filp) = filp_open(koutfile_name->name, O_WRONLY, (*in_filp)->f_mode);
+	if(!(*out_filp) || IS_ERR(*out_filp)){
+		//Creating output file with input file permissions
+		(*out_filp) = filp_open(koutfile_name->name, O_WRONLY|O_CREAT , (*in_filp)->f_mode);
+		if(!(*out_filp) || IS_ERR(*out_filp)){
+			printk("[Error] Output file could not be created!");
+			ret = PTR_ERR(*out_filp);
+			goto out_koutfile_name;
+		}
+	}
+
 	out_koutfile_name:
 		putname(koutfile_name);
 	out:
@@ -317,8 +446,8 @@ int read_preamble(struct file* in_filp, void* hash_key_buff, unsigned int key_le
 		goto out_file_hash;
 	}
 
-	printk("file_hash: %s", file_hash);
-	printk("hash_key_buff: %s", hash_key_buff);
+	// printk("file_hash: %s", file_hash);
+	// printk("hash_key_buff: %s", hash_key_buff);
 
 	if(memcmp(file_hash, hash_key_buff, key_len)){
 		ret = -EACCES;
@@ -331,6 +460,19 @@ int read_preamble(struct file* in_filp, void* hash_key_buff, unsigned int key_le
 		return ret;
 }
 
+int set_aes_cipher(char **cipher_full_name, char **cipher_name,
+		   unsigned int *keylen)
+{
+	*cipher_full_name = kmalloc(14, GFP_KERNEL);
+	if (!*cipher_full_name)
+		return -ENOMEM;
+	memcpy(*cipher_full_name, "ctr-aes-aesni", 14);
+	*cipher_name = kmalloc(4, GFP_KERNEL);
+	memcpy(*cipher_name, "aes", 4);
+	*keylen = 32;
+	return 0;
+}
+
 asmlinkage long cryptocopy(void *arg)
 {
 	void* kargs = NULL;
@@ -339,6 +481,13 @@ asmlinkage long cryptocopy(void *arg)
 	unsigned int key_len;
 	int ret = 0;
 	void* hash_key_buff = NULL;
+
+	void *ivdata = NULL;
+	char *cipher_name = NULL;
+	char *cipher_full_name = NULL;
+
+	struct kstat *infile_stat = NULL;
+	struct kstat *outfile_stat = NULL;
 
 	ret = check_valid_address(arg, sizeof(struct user_args));
 	if(ret < 0){
@@ -402,22 +551,40 @@ asmlinkage long cryptocopy(void *arg)
 		ret = generate_hash(((struct user_args *)kargs)->keybuf, key_len, hash_key_buff);
 		if (ret < 0)
 			goto out_hash_key_buff;	
+
+		ivdata = kmalloc(16, GFP_KERNEL);
+		if (!ivdata) {
+			ret =  -ENOMEM;
+			goto out_hash_key_buff;
+		}
+		memset(ivdata, 123456, 16);
+
+		ret = set_aes_cipher(&cipher_full_name, &cipher_name, &key_len);
+		if (ret < 0)
+			goto out_ivdata;
 	}
 
-	ret = validate_open_input_file(arg, &in_filp);
+	ret = validate_open_input_file(arg, &in_filp, infile_stat);
 	if(ret < 0){
 		printk("[Error] Failed to open the input file.\n");
 		goto out_in_filp;
 	}
 
-	ret = validate_open_output_file(arg, &out_filp);
+	ret = validate_open_output_file(arg, &out_filp, outfile_stat,  &in_filp, infile_stat);
 	if(ret<0){
 		printk("[Error]: Failed to open the output file.\n");
 		goto out_out_filp;
 	}
 
-	/***OPEN OUTPUT FILE WITH INPUT FILE PERMISSION***/
-	out_filp->f_inode->i_mode = in_filp->f_inode->i_mode;
+	printk("INODE INO: %lu\n", in_filp->f_inode->i_ino);
+	printk("INODE INO: %lu\n", out_filp->f_inode->i_ino);
+
+	/***INPUT AND OUTPUT FILE POINT TO THE SAME FILE***/
+	if (out_filp->f_inode->i_ino  == in_filp->f_inode->i_ino) {
+		printk("Input and Output file point to same file\n");
+		ret = -EINVAL;
+		goto out_out_filp;
+	}
 
 	// struct filename *kinfile_name;
 	// kinfile_name = getname(((struct user_args *)arg)->infile);
@@ -461,20 +628,36 @@ asmlinkage long cryptocopy(void *arg)
 		}
 	}
 
-	ret = copy_file(in_filp, out_filp);
+	// ret = copy_file(in_filp, out_filp);
+
+	ret = read_write(in_filp, out_filp, &ivdata, hash_key_buff, key_len,
+			 cipher_full_name, flag);
+
 	if(ret < 0){
 		printk("Error in reading the file");
 		goto out_out_filp;
 	}
 
 	out_out_filp:
-		filp_close(out_filp, NULL);
+		if(!outfile_stat){
+			kfree(outfile_stat);
+		}
+		if(!out_filp)
+			filp_close(out_filp, NULL);
 	// out_koutfile_name:
 	// 	putname(koutfile_name);
 	out_in_filp:
-		filp_close(in_filp, NULL);
+		if(!infile_stat){
+			kfree(infile_stat);
+		}
+		if(!in_filp)
+			filp_close(in_filp, NULL);
 	// out_kinfile_name:
 	// 	putname(kinfile_name);
+	out_ivdata:
+		kfree(ivdata);
+		kfree(cipher_full_name);
+		kfree(cipher_name);
 	out_hash_key_buff:
 		kfree(hash_key_buff);
 	out_kargs_keybuf:
