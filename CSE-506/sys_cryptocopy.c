@@ -8,7 +8,7 @@
 
 asmlinkage extern long (*sysptr)(void *arg);
 
-#define SHA512_LENGTH 64 
+#define SHA256_LENGTH 32 
 
 struct user_args {
 	char *infile;
@@ -58,7 +58,6 @@ int copy_key_buff(struct user_args *kargs, struct user_args *arg, unsigned int k
 		}
 
 		printk("[TEST] PRINT KEYBUFF: %s\n", (char *)kargs->keybuf);
-
 		out_kargs_keybuf:
 			kfree(kargs->keybuf);
 		out:
@@ -151,9 +150,9 @@ int generate_hash(void *in_data, unsigned int in_len, void *hash_key_buff)
 	int desc_size;
 	int ret = 0;
 
-	memset(hash_key_buff, 0, SHA512_LENGTH);
+	memset(hash_key_buff, 0, SHA256_LENGTH);
 
-	tfm = crypto_alloc_shash("sha512", 0, CRYPTO_ALG_ASYNC);
+	tfm = crypto_alloc_shash("sha256", 0, CRYPTO_ALG_ASYNC);
 
 	if (IS_ERR(tfm)) {
 		pr_err("Could not allocate memory to tfm for sha512\n");
@@ -260,11 +259,11 @@ int validate_open_output_file(struct user_args *arg, struct file** out_filp){
 		goto out;
 	}
 
-	outfile_stat = kmalloc(sizeof(*outfile_stat), GFP_KERNEL);
-	if (!outfile_stat) {
-		ret = -ENOMEM;
-		goto out_koutfile_name;
-	}
+	// outfile_stat = kmalloc(sizeof(*outfile_stat), GFP_KERNEL);
+	// if (!outfile_stat) {
+	// 	ret = -ENOMEM;
+	// 	goto out_koutfile_name;
+	// }
 
 	/*** DO OUTPUT FILE VERIFICATION HERE ***/
 
@@ -273,30 +272,31 @@ int validate_open_output_file(struct user_args *arg, struct file** out_filp){
 	(*out_filp) = filp_open(koutfile_name->name, O_WRONLY | O_TRUNC | O_CREAT, 0777);
 	if(IS_ERR(out_filp)){
 		ret = PTR_ERR(out_filp);
-		goto out_outfile_stat;
+		goto out_koutfile_name;
 	}
 
-	out_outfile_stat:
-		kfree(outfile_stat);
+	// out_outfile_stat:
+	// 	kfree(outfile_stat);
 	out_koutfile_name:
 		putname(koutfile_name);
 	out:
 		return ret;
 }
 
-int write_preamble(struct file** out_filp, void** hash_key_buff, unsigned int key_len){
+int write_preamble(struct file* out_filp, void* hash_key_buff, unsigned int key_len){
 	ssize_t data_bytes_write = 0;
 
-	data_bytes_write = kernel_write(*out_filp, *hash_key_buff, key_len,
-				   &((*out_filp)->f_pos));
+	data_bytes_write = kernel_write(out_filp, hash_key_buff, key_len,
+				   &out_filp->f_pos);
 	
+
 	if (data_bytes_write < 0)
 		return data_bytes_write;
 	else
 		return 0;
 }
 
-int read_preamble(struct file* in_filp, void** hash_key_buff, unsigned int key_len){
+int read_preamble(struct file* in_filp, void* hash_key_buff, unsigned int key_len){
 	int ret = 0;
 	void* file_hash = NULL;
 	ssize_t data_bytes_read = 0;
@@ -308,6 +308,7 @@ int read_preamble(struct file* in_filp, void** hash_key_buff, unsigned int key_l
 	}
 
 	data_bytes_read = kernel_read(in_filp, file_hash, key_len, &in_filp->f_pos);
+	
 	printk("IN READ PREAMBLE - Bytes Read %ld\n", data_bytes_read);
 
 	if(data_bytes_read<0){
@@ -316,8 +317,10 @@ int read_preamble(struct file* in_filp, void** hash_key_buff, unsigned int key_l
 		goto out_file_hash;
 	}
 
-	printk("IN READ PREAMBLE AFTER KERNEL_READ\n");
-	if(memcmp(file_hash, *hash_key_buff, key_len) != 0){
+	printk("file_hash: %s", file_hash);
+	printk("hash_key_buff: %s", hash_key_buff);
+
+	if(memcmp(file_hash, hash_key_buff, key_len)){
 		ret = -EACCES;
 		goto out_file_hash;
 	}
@@ -369,12 +372,28 @@ asmlinkage long cryptocopy(void *arg)
 	}
 
 	if(flag & 0x1 || flag & 0x2){
-		ret = copy_key_buff(kargs, arg, key_len);
-		if(ret < 0){
+		
+		// ret = copy_key_buff(kargs, arg, key_len);
+		// if(ret < 0){
+		// 	goto out_karg;
+		// }
+
+		((struct user_args *)kargs)->keybuf = kmalloc(key_len, GFP_KERNEL);
+		if (!(((struct user_args *)kargs)->keybuf)) {
+			ret = -ENOMEM;
 			goto out_karg;
 		}
 
-		hash_key_buff = kmalloc(SHA512_LENGTH, GFP_KERNEL);
+		/* copy arguments from user space to kernel space */
+		if (copy_from_user(((struct user_args *)kargs)->keybuf,
+				   ((struct user_args *)arg)->keybuf,
+				   key_len)) {
+			pr_err("Error in copy password from user to kernel memory\n");
+			ret = -EFAULT;
+			goto out_kargs_keybuf;
+		}
+
+		hash_key_buff = kmalloc(SHA256_LENGTH, GFP_KERNEL);
 		if (!hash_key_buff) {
 			ret = -ENOMEM;
 			goto out_karg;
@@ -384,7 +403,7 @@ asmlinkage long cryptocopy(void *arg)
 		if (ret < 0)
 			goto out_hash_key_buff;	
 	}
-	
+
 	ret = validate_open_input_file(arg, &in_filp);
 	if(ret < 0){
 		printk("[Error] Failed to open the input file.\n");
@@ -400,14 +419,42 @@ asmlinkage long cryptocopy(void *arg)
 	/***OPEN OUTPUT FILE WITH INPUT FILE PERMISSION***/
 	out_filp->f_inode->i_mode = in_filp->f_inode->i_mode;
 
+	// struct filename *kinfile_name;
+	// kinfile_name = getname(((struct user_args *)arg)->infile);
+	// if(IS_ERR(kinfile_name)){
+	// 	ret = PTR_ERR(kinfile_name);
+	// 	goto out_hash_key_buff;
+	// }	
+
+	// in_filp = filp_open(kinfile_name->name, O_RDONLY, 0);
+	// if(IS_ERR(in_filp)){
+	// 	ret = PTR_ERR(in_filp);
+	// 	goto out_kinfile_name;
+	// }
+
+	// struct filename *koutfile_name;
+	// koutfile_name = getname(((struct user_args *)arg)->outfile);
+	// if(IS_ERR(koutfile_name)){
+	// 	ret = PTR_ERR(koutfile_name);
+	// 	goto out_in_filp;
+	// }
+
+	// out_filp = filp_open(koutfile_name->name, O_WRONLY | O_TRUNC | O_CREAT, 0777);
+	// if(IS_ERR(out_filp)){
+	// 	ret = PTR_ERR(out_filp);
+	// 	goto out_koutfile_name;
+	// }
+
 	if(flag & 0x1){
-		ret = write_preamble(&out_filp, &hash_key_buff, key_len);
+		printk("WRITE TO PREAMBLE\n");
+		ret = write_preamble(out_filp, hash_key_buff, SHA256_LENGTH);
 		if(ret < 0){
 			printk("[Error] Unable to write hash to preamble\n");
 			goto out_out_filp;
 		}
 	}else if(flag & 0x2){
-		ret = read_preamble(in_filp, &hash_key_buff, key_len);
+		printk("READ FROM TO PREAMBLE\n");
+		ret = read_preamble(in_filp, hash_key_buff, SHA256_LENGTH);
 		if(ret < 0){
 			printk("[Error] Unable to validate hash from preamble of inputfile and password provided.\n");
 			goto out_out_filp;
@@ -422,10 +469,16 @@ asmlinkage long cryptocopy(void *arg)
 
 	out_out_filp:
 		filp_close(out_filp, NULL);
+	// out_koutfile_name:
+	// 	putname(koutfile_name);
 	out_in_filp:
 		filp_close(in_filp, NULL);
+	// out_kinfile_name:
+	// 	putname(kinfile_name);
 	out_hash_key_buff:
 		kfree(hash_key_buff);
+	out_kargs_keybuf:
+		kfree(((struct user_args *)kargs)->keybuf);
 	out_karg:
 		kfree(kargs);
 	out:

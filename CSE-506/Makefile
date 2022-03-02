@@ -5,7 +5,7 @@ INC=/lib/modules/$(shell uname -r)/build/arch/x86/include
 all: xhw1 cryptocopy
 
 xhw1: xhw1.c
-	gcc -Wall -Werror -I$(INC)/generated/uapi -I$(INC)/uapi xhw1.c -o xhw1
+	gcc -Wall -Werror -I$(INC)/generated/uapi -I$(INC)/uapi xhw1.c -o xhw1 -lcrypto
 
 cryptocopy:
 	make -Wall -Werror -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
