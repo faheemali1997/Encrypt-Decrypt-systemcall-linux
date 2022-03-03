@@ -8,6 +8,7 @@
 #include <string.h>
 #include <getopt.h>
 
+
 #ifndef __NR_cryptocopy
 #error cryptocopy system call not defined
 #endif
@@ -129,11 +130,20 @@ int main(int argc, char* const argv[])
 		goto out_uargs_keybuff;
 	}
 
-	// (*uargs).infile = argv[optind++];
-	// (*uargs).outfile = argv[optind];
+	if(uargs->flag & 0x4 && argc != 4){
+		printf("Invalid Arguments Count\n");
+		ret = -EINVAL;
+		goto out_uargs_keybuff;
+	}
+
+	if((uargs->flag & 0x1 || uargs->flag & 0x2) && argc != 6){
+		printf("Invalid Arguments Count\n");
+		ret = -EINVAL;
+		goto out_uargs_keybuff;
+	}
 
 	if(optind < argc){
-		if(argv[optind][0] == '\0'){
+		if(!argv[optind] || argv[optind][0] == '\0'){
 			printf("Input filename not provided\n");
 			ret = -EINVAL;
 			goto out_uargs_keybuff;
@@ -143,7 +153,7 @@ int main(int argc, char* const argv[])
 	}
 
 	if(optind < argc){
-		if(argv[optind][0] == '\0'){
+		if(!argv[optind] || argv[optind][0] == '\0'){
 			printf("Output filename not provided\n");
 			ret = -EINVAL;
 			goto out_uargs_keybuff;
@@ -167,7 +177,9 @@ int main(int argc, char* const argv[])
 	out:
 		if (ret == 0)
 			printf("syscall returned %d\n", ret);
-		else
+		else{
 			printf("syscall returned %d (errno=%d)\n", ret, errno);
+			printf("Error Details: %s\n", strerror(errno));
+		}
 		exit(ret);
 }
