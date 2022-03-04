@@ -446,9 +446,6 @@ int read_preamble(struct file* in_filp, void* hash_key_buff, unsigned int key_le
 		goto out_file_hash;
 	}
 
-	// printk("file_hash: %s", file_hash);
-	// printk("hash_key_buff: %s", hash_key_buff);
-
 	if(memcmp(file_hash, hash_key_buff, key_len)){
 		ret = -EACCES;
 		goto out_file_hash;
@@ -576,41 +573,12 @@ asmlinkage long cryptocopy(void *arg)
 		goto out_out_filp;
 	}
 
-	printk("INODE INO: %lu\n", in_filp->f_inode->i_ino);
-	printk("INODE INO: %lu\n", out_filp->f_inode->i_ino);
-
 	/***INPUT AND OUTPUT FILE POINT TO THE SAME FILE***/
 	if (out_filp->f_inode->i_ino  == in_filp->f_inode->i_ino) {
 		printk("Input and Output file point to same file\n");
 		ret = -EINVAL;
 		goto out_out_filp;
 	}
-
-	// struct filename *kinfile_name;
-	// kinfile_name = getname(((struct user_args *)arg)->infile);
-	// if(IS_ERR(kinfile_name)){
-	// 	ret = PTR_ERR(kinfile_name);
-	// 	goto out_hash_key_buff;
-	// }	
-
-	// in_filp = filp_open(kinfile_name->name, O_RDONLY, 0);
-	// if(IS_ERR(in_filp)){
-	// 	ret = PTR_ERR(in_filp);
-	// 	goto out_kinfile_name;
-	// }
-
-	// struct filename *koutfile_name;
-	// koutfile_name = getname(((struct user_args *)arg)->outfile);
-	// if(IS_ERR(koutfile_name)){
-	// 	ret = PTR_ERR(koutfile_name);
-	// 	goto out_in_filp;
-	// }
-
-	// out_filp = filp_open(koutfile_name->name, O_WRONLY | O_TRUNC | O_CREAT, 0777);
-	// if(IS_ERR(out_filp)){
-	// 	ret = PTR_ERR(out_filp);
-	// 	goto out_koutfile_name;
-	// }
 
 	if(flag & 0x1){
 		printk("WRITE TO PREAMBLE\n");
@@ -627,8 +595,6 @@ asmlinkage long cryptocopy(void *arg)
 			goto out_out_filp;
 		}
 	}
-
-	// ret = copy_file(in_filp, out_filp);
 
 	ret = read_write(in_filp, out_filp, &ivdata, hash_key_buff, key_len,
 			 cipher_full_name, flag);
