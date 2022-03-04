@@ -2,10 +2,6 @@
 
 # Test copy command for xhw1 and to compare whether
 # two files after copy are same or not by comparing the files.
-# Inputs:
-#		infile.test -> File with the input data
-# 		outfile.test -> File with the copied data
-# Outputs: Whether copying was successful or not.
 set -x
 
 echo dummy data - operating systems  > infile.test

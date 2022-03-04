@@ -1,0 +1,68 @@
+
+Test File: test01.sh
+Command: ./xhw1 -c infile.test outfile.test
+Result: xhw1 program succeeded
+
+Comments: infile.test and outfile.test have SAME content
+------------------------------------------------------------------------------
+
+Test File: test02.sh
+Command: ./xhw1 -e -p password infile.test tempfile.test
+Result: [Encryption] xhw1 program succeeded
+Command: ./xhw1 -d -p password tempfile.test outfile.test
+Result: [Decryption] xhw1 program succeeded
+
+Comments: infile.test and outfile.test have SAME content
+------------------------------------------------------------------------------
+
+Test File: test03.sh
+Command: ./xhw1 -c infile.test outfile.test
+Result: xhw1 failed with error: 234
+Comments: Successfully validated missing/extra arguments
+------------------------------------------------------------------------------
+
+Test File: test04.sh
+Command: ./xhw1 -e infile.test outfile.test
+Result: xhw1 failed with error: 234
+Comments: Successfully validated missing/extra arguments
+------------------------------------------------------------------------------
+
+Test File: test05.sh
+Command: ./xhw1 -e -p password infile.test tempfile.test
+Result: [Encryption] xhw1 program succeeded
+Command: ./xhw1 -d -p wrongpassword tempfile.test outfile.test
+Result: [Decryption] Successfully failed when wrong password was given: 255
+------------------------------------------------------------------------------
+
+Test File: test06.sh
+Command: ./xhw1 -c -p password infile.test outfile.test
+Result: xhw1 failed with error: 234
+Comments: Successfully validated missing/extra arguments
+------------------------------------------------------------------------------
+
+Test File: test07.sh
+Command: ./xhw1 -q -p password infile.test outfile.test
+Result: xhw1 failed with error: 234
+Comments: Successfully validated missing/extra/wrong arguments
+------------------------------------------------------------------------------
+
+Test File: test08.sh
+Command: ./xhw1 -q -e -d -p password infile.test outfile.test
+Result: xhw1 failed with error: 234
+Comments: Successfully validated missing/extra/wrong arguments
+------------------------------------------------------------------------------
+
+Test File: test09.sh
+Command: ./xhw1 -c infile.test infile.test
+Result: xhw1 failed with error: 255 as input file was same as output file
+------------------------------------------------------------------------------
+
+Test File: test10.sh
+Command: ./xhw1 -c infile.test infile.test
+Result: xhw1 failed with error: 234 as output file name was string
+------------------------------------------------------------------------------
+
+Test File: test11.sh
+Command: ./xhw1
+Result: xhw1 failed with error: 234 as no arguments were given
+------------------------------------------------------------------------------
