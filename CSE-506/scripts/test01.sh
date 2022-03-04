@@ -29,7 +29,7 @@ echo  "" >> results
 echo  "" >> log
 
 if cmp infile.test outfile.test ; then
-	echo "Comments: infile.test and outfile.test have SAME content" >> results
+	echo "Comments: [SUCCESS] infile.test and outfile.test have SAME content" >> results
 else
 	echo "Comments: infile.test and outfile.test have DIFFERENT content" >> results
 fi

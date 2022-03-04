@@ -26,6 +26,9 @@ struct skcipher_def {
 	struct skcipher_request *req;
 };
 
+/*
+ 	This function checks if the address that the users wants to access is valid or not. 
+ */
 int check_valid_address(void* arg, int len){
 	
 	//Check if user arguments are NULL
@@ -43,6 +46,9 @@ int check_valid_address(void* arg, int len){
 	return 0;
 }
 
+/*
+	Copies the key buffer from the user space to the kernel space.
+*/
 int copy_key_buff(struct user_args *kargs, struct user_args *arg, unsigned int key_len){
 		int ret = 0;
 		ret = check_valid_address(arg->keybuf, key_len);
@@ -113,6 +119,10 @@ int validate_flags(struct user_args *kargs){
 	return 0;
 }
 
+/*
+	Encrypts or decrypt the data sent in the buffer based on user input.
+	It encrypt/decrypts data one PAGE_SIZE at the time or anything less than that.
+*/
 static int encrypt_decrypt(struct skcipher_request *req, void *buf, int buf_len, char *ivdata, unsigned char flag)
 {
 	struct scatterlist *sg;
@@ -149,7 +159,10 @@ out1:
 	return ret;
 }
 
-
+/*
+	This function reads the data from the input file and then based on encryption/decryption/copy flag it
+	copies the data to the output file. For copy we bypass any encryption/decryption
+*/
 int read_write(struct file *infile_ptr, struct file *outfile_ptr, void **ivdata,
 	       void *key, unsigned int keylen, char *cipher_name,
 	       unsigned char flag)
@@ -265,6 +278,8 @@ int copy_file(struct file *in_filp, struct file *out_filp){
 
 /**
  * Reference: https://gist.github.com/vkobel/3100cea3625ca765e4153782314bd03d
+ * 
+ * Genrated the hash for the data passed using SHA256. The output is a 32bytes hashed cipher
  */
 int generate_hash(void *in_data, unsigned int in_len, void *hash_key_buff)
 {
@@ -307,6 +322,9 @@ out_hash_key:
 	return ret;
 }
 
+/*
+	Gets the kstat for a file with the given filename using vfs_stat
+*/
 int get_stat(const char *name, struct kstat **file_stat)
 {
 	mm_segment_t old_fs;
@@ -318,6 +336,9 @@ int get_stat(const char *name, struct kstat **file_stat)
 	return ret;
 }
 
+/*
+	Validates the input file based on multiple factors like permissions, file type etc
+*/
 int validate_open_input_file(struct user_args *arg, struct file** in_filp, struct kstat *infile_stat){
 	// struct kstat *infile_stat;
 	struct filename *kinfile_name;
@@ -369,6 +390,10 @@ int validate_open_input_file(struct user_args *arg, struct file** in_filp, struc
 		return ret;
 }
 
+/*	
+	Validates the output file based on multiple factors like permissions, file type etc. It creates a file
+	if the file doesn't exists and sets the same file permission for output file as input file.
+*/
 int validate_open_output_file(struct user_args *arg, struct file** out_filp, struct kstat *outfile_stat, struct file** in_filp, struct kstat *infile_stat){
 	
 	struct filename *koutfile_name;
@@ -425,6 +450,10 @@ int write_preamble(struct file* out_filp, void* hash_key_buff, unsigned int key_
 		return 0;
 }
 
+/*
+	Reads the preamble bytes from the file and compares it with the hash of the password provided by the user.
+	If the two match it means the user has the access for the file and can read it.
+*/
 int read_preamble(struct file* in_filp, void* hash_key_buff, unsigned int key_len){
 	int ret = 0;
 	void* file_hash = NULL;
@@ -446,6 +475,8 @@ int read_preamble(struct file* in_filp, void* hash_key_buff, unsigned int key_le
 		goto out_file_hash;
 	}
 
+	printk("FILE_HASH %s\n", (char *)file_hash);
+	printk("hash_key_buff %s\n", (char *)hash_key_buff);
 	if(memcmp(file_hash, hash_key_buff, key_len)){
 		ret = -EACCES;
 		goto out_file_hash;
@@ -473,7 +504,7 @@ int set_aes_cipher(char **cipher_full_name, char **cipher_name,
 asmlinkage long cryptocopy(void *arg)
 {
 	void* kargs = NULL;
-	struct file *in_filp = NULL, *out_filp = NULL;
+	struct file *in_filp = NULL, *out_filp = NULL, *temp_filp=NULL;
 	unsigned char flag;
 	unsigned int key_len;
 	int ret = 0;
@@ -580,30 +611,51 @@ asmlinkage long cryptocopy(void *arg)
 		goto out_out_filp;
 	}
 
+	temp_filp = filp_open("outfile.tmp", O_WRONLY|O_CREAT|O_TRUNC , in_filp->f_mode);
+	if(IS_ERR(temp_filp)){
+		ret = PTR_ERR(temp_filp);
+		goto out_out_filp;
+	}
+
 	if(flag & 0x1){
 		printk("WRITE TO PREAMBLE\n");
-		ret = write_preamble(out_filp, hash_key_buff, SHA256_LENGTH);
+		ret = write_preamble(temp_filp, hash_key_buff, SHA256_LENGTH);
 		if(ret < 0){
 			printk("[Error] Unable to write hash to preamble\n");
-			goto out_out_filp;
+			goto out_tmp_filp;
 		}
 	}else if(flag & 0x2){
 		printk("READ FROM TO PREAMBLE\n");
 		ret = read_preamble(in_filp, hash_key_buff, SHA256_LENGTH);
 		if(ret < 0){
 			printk("[Error] Unable to validate hash from preamble of inputfile and password provided.\n");
-			goto out_out_filp;
+			goto out_tmp_filp;
 		}
 	}
 
-	ret = read_write(in_filp, out_filp, &ivdata, hash_key_buff, key_len,
+	ret = read_write(in_filp, temp_filp, &ivdata, hash_key_buff, key_len,
 			 cipher_full_name, flag);
 
-	if(ret < 0){
-		printk("Error in reading the file");
-		goto out_out_filp;
-	}
 
+	out_tmp_filp:
+		if(ret < 0){
+		//Just unlink the temp file and do not touch the output file
+			ret = vfs_unlink(temp_filp->f_path.dentry->d_parent->d_inode, temp_filp->f_path.dentry, NULL);
+			if (ret) {
+				printk(KERN_ERR "Error in vfs_unlinkl");
+				goto out_tmp_filp;
+			}
+		}else{
+			ret = vfs_rename(temp_filp->f_path.dentry->d_parent->d_inode, temp_filp->f_path.dentry, out_filp->f_path.dentry->d_parent->d_inode, out_filp->f_path.dentry, NULL, 0);			
+			if (ret) {
+				printk(KERN_ERR "Error in vfs_rename;");
+				goto out_tmp_filp;
+			}	
+		}
+
+		if(!temp_filp){
+			filp_close(temp_filp, NULL);
+		}
 	out_out_filp:
 		if(!outfile_stat){
 			kfree(outfile_stat);
