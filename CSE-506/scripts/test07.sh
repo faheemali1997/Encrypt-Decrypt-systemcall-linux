@@ -10,17 +10,17 @@ echo  "" >> log
 echo Test File: test07.sh  >> results
 echo Test File: test07.sh  >> log
 
-echo Command: ./xhw1 -q -p password  infile.test outfile.test >> results
-echo Command: ./xhw1 -q -p password  infile.test outfile.test >> log
+echo Command: ./test_cryptocopy -q -p password  infile.test outfile.test >> results
+echo Command: ./test_cryptocopy -q -p password  infile.test outfile.test >> log
 
-../xhw1 -q -p password infile.test outfile.test >> log
+../test_cryptocopy -q -p password infile.test outfile.test >> log
 
 retval=$?
 if test $retval != 0 ; then
-	echo Result: xhw1 failed with error: $retval >> results
+	echo Result: test_cryptocopy failed with error: $retval >> results
     echo Comments: Successfully validated missing/extra/wrong arguments >> results
 else
-	echo Result: xhw1 program succeeded >> results
+	echo Result: test_cryptocopy program succeeded >> results
     echo Comments: Unsuccessfully validated missing/extra/wrong arguments >> results
 fi
 

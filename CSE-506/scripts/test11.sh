@@ -12,16 +12,16 @@ echo  "" >> log
 echo Test File: test11.sh  >> results
 echo Test File: test11.sh  >> log
 
-echo Command: ./xhw1 >> results
-echo Command: ./xhw1 >> log
+echo Command: ./test_cryptocopy >> results
+echo Command: ./test_cryptocopy >> log
 
-../xhw1 >> log
+../test_cryptocopy >> log
 
 retval=$?
 if test $retval != 0 ; then
-	echo Result: xhw1 failed with error: $retval as no arguments were given >> results
+	echo Result: test_cryptocopy failed with error: $retval as no arguments were given >> results
 else
-	echo Result: xhw1 program succeeded >> results
+	echo Result: test_cryptocopy program succeeded >> results
 fi
 
 /bin/rm -f infile.test

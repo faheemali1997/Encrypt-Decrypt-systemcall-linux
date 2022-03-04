@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Test encrypt command for xhw1 with missing passowrd for encryption
+# Test encrypt command for test_cryptocopy with missing passowrd for encryption
 set -x
 
 echo dummy data - operating systems  > infile.test
@@ -12,17 +12,17 @@ echo  "" >> log
 echo Test File: test04.sh  >> results
 echo Test File: test04.sh  >> log
 
-echo Command: ./xhw1 -e  infile.test outfile.test >> results
-echo Command: ./xhw1 -e  infile.test outfile.test >> log
+echo Command: ./test_cryptocopy -e  infile.test outfile.test >> results
+echo Command: ./test_cryptocopy -e  infile.test outfile.test >> log
 
-../xhw1 -e infile.test outfile.test >> log
+../test_cryptocopy -e infile.test outfile.test >> log
 
 retval=$?
 if test $retval != 0 ; then
-	echo Result: xhw1 failed with error: $retval >> results
+	echo Result: test_cryptocopy failed with error: $retval >> results
     echo Comments: Successfully validated missing/extra arguments >> results
 else
-	echo Result: xhw1 program succeeded >> results
+	echo Result: test_cryptocopy program succeeded >> results
     echo Comments: Unsuccessfully validated missing/extra arguments >> results
 fi
 

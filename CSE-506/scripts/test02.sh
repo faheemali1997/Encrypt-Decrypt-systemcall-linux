@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Test encrypt/decrypt command for xhw1 and to compare whether
+# Test encrypt/decrypt command for test_cryptocopy and to compare whether
 # two files after copy are same or not by comparing the files.
 set -x
 
@@ -13,28 +13,28 @@ echo  "" >> log
 echo Test File: test02.sh  >> results
 echo Test File: test02.sh  >> log
 
-echo Command: ./xhw1 -e -p password infile.test tempfile.test >> results
-echo Command: ./xhw1 -e -p password infile.test tempfile.test >> log
+echo Command: ./test_cryptocopy -e -p password infile.test tempfile.test >> results
+echo Command: ./test_cryptocopy -e -p password infile.test tempfile.test >> log
 
-../xhw1 -e -p password infile.test tempfile.test >> log
+../test_cryptocopy -e -p password infile.test tempfile.test >> log
 
 retval=$?
 if test $retval != 0 ; then
-	echo Result: [Encryption] xhw1 failed with error: $retval >> results
+	echo Result: [Encryption] test_cryptocopy failed with error: $retval >> results
 else
-	echo Result: [Encryption] xhw1 program succeeded >> results
+	echo Result: [Encryption] test_cryptocopy program succeeded >> results
 fi
 
-echo Command: ./xhw1 -d -p password tempfile.test outfile.test >> results
-echo Command: ./xhw1 -d -p password tempfile.test outfile.test >> log
+echo Command: ./test_cryptocopy -d -p password tempfile.test outfile.test >> results
+echo Command: ./test_cryptocopy -d -p password tempfile.test outfile.test >> log
 
-../xhw1 -d -p password tempfile.test outfile.test >> log
+../test_cryptocopy -d -p password tempfile.test outfile.test >> log
 
 retval=$?
 if test $retval != 0 ; then
-	echo Result: [Decryption] xhw1 failed with error: $retval >> results
+	echo Result: [Decryption] test_cryptocopy failed with error: $retval >> results
 else
-	echo Result: [Decryption] xhw1 program succeeded >> results
+	echo Result: [Decryption] test_cryptocopy program succeeded >> results
 fi
 
 echo  "" >> results

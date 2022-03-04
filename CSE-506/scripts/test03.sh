@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Test copy command for xhw1 with missing output filename
+# Test copy command for test_cryptocopy with missing output filename
 set -x
 
 echo dummy data - operating systems  > infile.test
@@ -12,17 +12,17 @@ echo  "" >> log
 echo Test File: test03.sh  >> results
 echo Test File: test03.sh  >> log
 
-echo Command: ./xhw1 -c  infile.test outfile.test >> results
-echo Command: ./xhw1 -c  infile.test outfile.test >> log
+echo Command: ./test_cryptocopy -c  infile.test outfile.test >> results
+echo Command: ./test_cryptocopy -c  infile.test outfile.test >> log
 
-../xhw1 -c infile.test >> log
+../test_cryptocopy -c infile.test >> log
 
 retval=$?
 if test $retval != 0 ; then
-	echo Result: xhw1 failed with error: $retval >> results
+	echo Result: test_cryptocopy failed with error: $retval >> results
     echo Comments: Successfully validated missing/extra arguments >> results
 else
-	echo Result: xhw1 program succeeded >> results
+	echo Result: test_cryptocopy program succeeded >> results
     echo Comments: Unsuccessfully validated missing/extra arguments >> results
 fi
 

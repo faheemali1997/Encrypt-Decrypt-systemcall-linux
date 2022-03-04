@@ -1,6 +1,6 @@
 
 Test File: test01.sh
-Command: ./xhw1 -c infile.test outfile.test
+Command: ./test_cryptocopy -c infile.test outfile.test
 Flag 4
 Infile : infile.test 
 Outfile : outfile.test 
@@ -9,12 +9,12 @@ syscall returned 0
 ------------------------------------------------------------------------------
 
 Test File: test02.sh
-Command: ./xhw1 -e -p password infile.test tempfile.test
+Command: ./test_cryptocopy -e -p password infile.test tempfile.test
 Flag 1
 Infile : infile.test 
 Outfile : tempfile.test 
 syscall returned 0
-Command: ./xhw1 -d -p password tempfile.test outfile.test
+Command: ./test_cryptocopy -d -p password tempfile.test outfile.test
 Flag 2
 Infile : tempfile.test 
 Outfile : outfile.test 
@@ -23,26 +23,26 @@ syscall returned 0
 ------------------------------------------------------------------------------
 
 Test File: test03.sh
-Command: ./xhw1 -c infile.test outfile.test
+Command: ./test_cryptocopy -c infile.test outfile.test
 Invalid Arguments Count
 syscall returned -22 (errno=0)
 Error Details: Success
 ------------------------------------------------------------------------------
 
 Test File: test04.sh
-Command: ./xhw1 -e infile.test outfile.test
+Command: ./test_cryptocopy -e infile.test outfile.test
 Possword not provided. Password must be provided to encrypt/decrypt
 syscall returned -22 (errno=0)
 Error Details: Success
 ------------------------------------------------------------------------------
 
 Test File: test05.sh
-Command: ./xhw1 -e -p password infile.test tempfile.test
+Command: ./test_cryptocopy -e -p password infile.test tempfile.test
 Flag 1
 Infile : infile.test 
 Outfile : tempfile.test 
 syscall returned 0
-Command: ./xhw1 -d -p wrongpassword tempfile.test outfile.test
+Command: ./test_cryptocopy -d -p wrongpassword tempfile.test outfile.test
 Flag 2
 Infile : tempfile.test 
 Outfile : outfile.test 
@@ -51,28 +51,28 @@ Error Details: Permission denied
 ------------------------------------------------------------------------------
 
 Test File: test06.sh
-Command: ./xhw1 -c -p password infile.test outfile.test
+Command: ./test_cryptocopy -c -p password infile.test outfile.test
 Too many arguments.
 syscall returned -22 (errno=0)
 Error Details: Success
 ------------------------------------------------------------------------------
 
 Test File: test07.sh
-Command: ./xhw1 -q -p password infile.test outfile.test
+Command: ./test_cryptocopy -q -p password infile.test outfile.test
 No flag provided in input. Please provide flags
 syscall returned -22 (errno=0)
 Error Details: Success
 ------------------------------------------------------------------------------
 
 Test File: test08.sh
-Command: ./xhw1 -q -e -d -p password infile.test outfile.test
+Command: ./test_cryptocopy -q -e -d -p password infile.test outfile.test
 Invalid Arguments Count
 syscall returned -22 (errno=0)
 Error Details: Success
 ------------------------------------------------------------------------------
 
 Test File: test09.sh
-Command: ./xhw1 -c infile.test infile.test
+Command: ./test_cryptocopy -c infile.test infile.test
 Flag 4
 Infile : infile.test 
 Outfile : infile.test 
@@ -81,14 +81,14 @@ Error Details: Invalid argument
 ------------------------------------------------------------------------------
 
 Test File: test10.sh
-Command: ./xhw1 -c infile.test infile.test
+Command: ./test_cryptocopy -c infile.test infile.test
 Output filename not provided
 syscall returned -22 (errno=0)
 Error Details: Success
 ------------------------------------------------------------------------------
 
 Test File: test11.sh
-Command: ./xhw1
+Command: ./test_cryptocopy
 No flag provided in input. Please provide flags
 syscall returned -22 (errno=0)
 Error Details: Success
