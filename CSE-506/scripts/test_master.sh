@@ -2,11 +2,11 @@
 
 #Run all the test files
 
-/bin/rm -f log
-/bin/rm -f results
+/bin/rm -f ./log
+/bin/rm -f ./results
 
-touch log
-touch results
+touch ./log
+touch ./results
 
 sh ./test01.sh
 sh ./test02.sh
