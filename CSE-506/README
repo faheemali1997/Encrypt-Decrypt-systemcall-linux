@@ -104,3 +104,7 @@ REFRENCES :
 
 Skcipher code : https://www.kernel.org/doc/html/v4.18/crypto/api-samples.html
 https://elixir.bootlin.com/linux/v5.4.30/source/fs/ecryptfs/inode.c#L144
+https://code.woboq.org/linux/linux/crypto/md5.c.html
+https://www.cyberciti.biz/faq/linux-md5-hash-string-based-on-any-input-string/
+https://kernel.readthedocs.io/en/sphinx-samples/crypto-API.html
+https://mchehab.fedorapeople.org/kernel_docs/crypto/api-samples.html
